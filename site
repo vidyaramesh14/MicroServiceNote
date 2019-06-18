@@ -1,0 +1,138 @@
+package com.impelsys.catalog.service;
+
+import com.impelsys.catalog.common.APIResponse;
+import com.impelsys.catalog.common.Error;
+import com.impelsys.catalog.common.ErrorCode;
+import com.impelsys.catalog.common.MessageByLocale;
+import com.impelsys.catalog.domain.Session;
+import com.impelsys.catalog.domain.Site;
+import com.impelsys.catalog.domain.SiteRepository;
+import com.impelsys.catalog.dto.SiteDTO;
+import com.impelsys.catalog.dto.SiteData;
+import com.impelsys.catalog.exception.BadRequestException;
+import com.impelsys.catalog.validator.SiteValidator;
+import org.joda.time.DateTime;
+import org.joda.time.format.DateTimeFormat;
+import org.joda.time.format.DateTimeFormatter;
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Test;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.Mockito;
+import org.mockito.MockitoAnnotations;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
+public class SiteServiceTest {
+
+    private static final String SITE_NAME = "site";
+    private static final String SITE_CODE = "site1";
+    private static final Long DUMMY_ID = 10L;
+    private static final String DUMMY_SITE_NAME = SITE_NAME;
+    private static final String DUMMY_SITE_CODE = SITE_CODE;
+    private static final String DUMMY_SITE_URL = "/site";
+    private static final DateTimeFormatter FORMATTER = DateTimeFormat.forPattern("yyyy-MM-dd'T'HH:mm:ss.SSS");
+    private static final String DUMMY_START_AT_STRING = "2019-04-18T10:01:01.350";
+    private static final String DUMMY_END_AT_STRING = "2019-04-19T10:01:01.350";
+    private static final DateTime DUMMY_CREATE_DATE = FORMATTER.parseDateTime(DUMMY_START_AT_STRING);
+    private static final DateTime DUMMY_UPDATE_DATE = FORMATTER.parseDateTime(DUMMY_END_AT_STRING);
+
+    private Site dummySite;
+    private SiteData dummySiteData;
+    private SiteDTO dummysiteDTO;
+
+    @Mock
+    private SiteValidator siteValidator;
+    @Mock
+    private MessageByLocale messageByLocale;
+    @Mock
+    private SiteRepository siteRepository;
+    @InjectMocks
+    private SiteService siteService;
+    @Mock
+    private APIResponse apiResponse;
+
+
+    @Before
+    public void setup() {
+        MockitoAnnotations.initMocks(this);
+        dummySite = new Site();
+        dummySiteData = new SiteData();
+        dummysiteDTO = new SiteDTO();
+    }
+
+    @Test(expected = BadRequestException.class)
+    public void createSiteWithEmptyNameShouldReturnBadRequestException() {
+
+        dummysiteDTO.setName("");
+        dummysiteDTO.setCode(DUMMY_SITE_CODE);
+        dummysiteDTO.setUrl(DUMMY_SITE_URL);
+        dummySiteData.setSite(dummysiteDTO);
+
+        Mockito.when(siteValidator.validateCreateSite(dummySiteData)).thenReturn(Collections.singletonList(new Error()));
+        siteService.createSite(dummySiteData);
+
+    }
+
+    @Test(expected = BadRequestException.class)
+    public void createSiteWithEmptyURLShouldReturnBadRequestException() {
+
+        dummysiteDTO.setName(DUMMY_SITE_NAME);
+        dummysiteDTO.setCode(DUMMY_SITE_CODE);
+        dummysiteDTO.setUrl("");
+        dummySiteData.setSite(dummysiteDTO);
+
+        Mockito.when(siteValidator.validateCreateSite(dummySiteData)).thenReturn(Collections.singletonList(new Error()));
+        siteService.createSite(dummySiteData);
+
+    }
+
+    @Test(expected = BadRequestException.class)
+    public void createSiteWithEmptyCodeShouldReturnBadRequestException() {
+
+       // dummysiteDTO.setName(DUMMY_SITE_NAME);
+        dummysiteDTO.setCode(null);
+        //dummysiteDTO.setUrl(DUMMY_SITE_URL);
+        dummySiteData.setSite(dummysiteDTO);
+
+        Mockito.when(siteValidator.validateCreateSite(dummySiteData)).thenReturn(Collections.singletonList(new Error()));
+        siteService.createSite(dummySiteData);
+
+    }
+
+    @Test
+    public void createSiteWithValidDateShouldCreateSite() {
+        dummysiteDTO.setName(DUMMY_SITE_NAME);
+        dummysiteDTO.setCode(DUMMY_SITE_CODE);
+        dummysiteDTO.setUrl(DUMMY_SITE_URL);
+        dummysiteDTO.setId(10L);
+        dummysiteDTO.setActive(Boolean.TRUE);
+        dummysiteDTO.setUpdatedTime(DUMMY_UPDATE_DATE);
+        dummysiteDTO.setCreatedTime(DUMMY_CREATE_DATE);
+        dummySiteData.setSite(dummysiteDTO);
+
+        dummySite=SiteDTO.convertToEntity(dummysiteDTO);
+
+        APIResponse expectedResponse = new APIResponse();
+        expectedResponse.setData(dummySiteData);
+        expectedResponse.setStatus(200);
+
+        Mockito.when(siteValidator.validateCreateSite(dummySiteData)).thenReturn(Collections.EMPTY_LIST);
+        Mockito.when(siteRepository.save(Mockito.any(Site.class))).thenReturn(dummySite);
+        APIResponse actualResponse = siteService.createSite(dummySiteData);
+        Assert.assertEquals(expectedResponse.getStatus(), actualResponse.getStatus());
+        Assert.assertEquals(expectedResponse.toString(), actualResponse.toString());
+    }
+
+    public Error createError(String msgId, String field, String errorCode) {
+        String label = messageByLocale.getMessage(field);
+        String message = messageByLocale.getMessage(msgId, new String[]{label});
+        Error error = new Error(errorCode, label, message);
+
+        return error;
+    }
+
+}
+
