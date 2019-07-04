@@ -1,0 +1,646 @@
+/*
+ * Copyright 2017 Impelsys India Pvt. Ltd.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+*/
+
+package com.impelsys.phoenix.service;
+
+import static org.junit.Assert.assertEquals;
+
+import java.io.IOException;
+import java.sql.Timestamp;
+import java.util.ArrayList;
+import java.util.List;
+
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.Mockito;
+import org.mockito.MockitoAnnotations;
+import org.springframework.test.context.junit4.SpringRunner;
+import org.json.JSONException;
+import org.mockito.Matchers;
+import org.skyscreamer.jsonassert.JSONAssert;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+
+import com.impelsys.phoenix.common.APIResponse;
+import com.impelsys.phoenix.common.JWTUtils;
+import com.impelsys.phoenix.common.MessageByLocale;
+import com.impelsys.phoenix.domain.Site;
+import com.impelsys.phoenix.domain.SiteRepository;
+import com.impelsys.phoenix.domain.SiteSettings;
+import com.impelsys.phoenix.domain.SiteSettingsRepository;
+import com.impelsys.phoenix.dto.SiteDTO;
+import com.impelsys.phoenix.dto.SiteData;
+import com.impelsys.phoenix.dto.SiteSettingDTO;
+import com.impelsys.phoenix.dto.SiteSettingData;
+import com.impelsys.phoenix.exception.AccessDeniedException;
+import com.impelsys.phoenix.exception.BadRequestException;
+import com.impelsys.phoenix.common.ErrorCode;
+import com.impelsys.phoenix.common.Utils;
+import com.impelsys.phoenix.common.Error;
+import com.impelsys.phoenix.domain.ConfigGroup;
+import com.impelsys.phoenix.domain.ConfigGroupRepository;
+import com.impelsys.phoenix.domain.ModuleConfigGroup;
+import com.impelsys.phoenix.domain.ModuleConfigGroupRepository;
+import com.impelsys.phoenix.domain.QSite;
+import com.impelsys.phoenix.domain.QSiteSettings;
+import com.impelsys.phoenix.exception.ResourceNotFoundException;
+import com.querydsl.core.types.Predicate;
+import com.querydsl.core.types.dsl.BooleanExpression;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+
+@RunWith(SpringRunner.class)
+public class SiteServiceTest {
+
+    private String tenantId ="1";
+    private String name = "abc";
+    private String code = "xyz";
+    private String url = "http://www.abc.com";
+    public static final String SITE_TYPE = "site";
+    private static final Long SITE_ID = (long) 1;
+    private final Long LONGTENANT_ID = Long.valueOf(tenantId);
+    private static final String DUMMY_ERROR_MSG = "error message";
+    private static final String NAME = "name";
+    private static final Pageable DEFAULT_PAGEABLE = new PageRequest(1, 25);
+    private ObjectMapper mapper = new ObjectMapper();
+    private Gson gson = new GsonBuilder().create();
+    SiteSettings siteSetting = new SiteSettings();
+    ModuleConfigGroup moduleConfigGroup = new ModuleConfigGroup();
+    ConfigGroup configGroup = new ConfigGroup();
+
+    @Mock
+    private SiteRepository siteRepository;
+    @Mock
+    private JWTUtils jwtUtils;
+    @Mock
+    private MessageByLocale messageByLocale;
+    @Mock
+    private SiteSettingsRepository siteSettingRepository;
+    @Mock
+    private ModuleConfigGroupRepository moduleconfigrepo;
+    @Mock
+    private ConfigGroupRepository configGroupRepo;
+
+    @InjectMocks
+    private SiteService siteService;
+
+    @Before
+    public void setup() {
+        MockitoAnnotations.initMocks(this);
+
+        siteSetting.setSiteId(0L);
+        siteSetting.setSettings("{\"red\":\"blue\"}");
+        siteSetting.setConfigGroupId(0L);
+        siteSetting.setCreatedTime(null);
+        siteSetting.setUpdatedTime(null);
+        moduleConfigGroup.setConfigGroupId(0L);
+        moduleConfigGroup.setModuleId(0L);
+        configGroup.setId(0L);
+        configGroup.setName("name");
+        configGroup.setType("site");
+    }
+
+    @Test(expected = AccessDeniedException.class)
+    public void addSiteWithoutTenantIdHeaderShouldThrowBadRequestException() {
+        SiteData newSiteData = new SiteData();
+        SiteDTO siteDto = new SiteDTO();
+        siteDto.setUrl(url);
+        siteDto.setIsActive(Boolean.TRUE);
+        newSiteData.setSite(siteDto);
+
+        siteService.addSite(null,newSiteData);
+    }
+
+    @Test(expected = AccessDeniedException.class)
+    public void addSiteWithInvalidTenantIdHeaderShouldThrowBadRequestException() {
+        SiteData newSiteData = new SiteData();
+        SiteDTO siteDto = new SiteDTO();
+        siteDto.setUrl(url);
+        siteDto.setIsActive(Boolean.TRUE);
+        newSiteData.setSite(siteDto);
+
+        siteService.addSite("abcd",newSiteData);
+    }
+
+    @Test(expected = BadRequestException.class)
+    public void addSiteWithoutNameShouldThrowBadRequestException() {
+        SiteData newSiteData = new SiteData();
+        SiteDTO siteDto = new SiteDTO();
+        siteDto.setName("");
+        siteDto.setUrl(url);
+        siteDto.setIsActive(Boolean.TRUE);
+        newSiteData.setSite(siteDto);
+
+        siteService.addSite(tenantId,newSiteData);
+    }
+
+    @Test(expected = BadRequestException.class)
+    public void addSiteWithInvalidNameShouldThrowBadRequestException() {
+        SiteData newSiteData = new SiteData();
+        SiteDTO siteDto = new SiteDTO();
+        siteDto.setName(name.concat("#$"));
+        siteDto.setUrl(url);
+        siteDto.setIsActive(Boolean.TRUE);
+        newSiteData.setSite(siteDto);
+
+        siteService.addSite(tenantId,newSiteData);
+    }
+
+    @Test(expected = BadRequestException.class)
+    public void addSiteWithNullUrlShouldThrowBadRequestException() {
+        SiteData newSiteData = new SiteData();
+        SiteDTO siteDto = new SiteDTO();
+        siteDto.setName(name);
+        siteDto.setUrl("");
+        siteDto.setIsActive(Boolean.TRUE);
+        newSiteData.setSite(siteDto);
+
+        siteService.addSite(tenantId,newSiteData);
+    }
+
+    @Test(expected = BadRequestException.class)
+    public void addSiteWithInvalidUrlShouldThrowBadRequestException() {
+        SiteData newSiteData = new SiteData();
+        SiteDTO siteDto = new SiteDTO();
+        siteDto.setName(name);
+        siteDto.setUrl("www.abc.com");
+        siteDto.setIsActive(Boolean.TRUE);
+        newSiteData.setSite(siteDto);
+
+        siteService.addSite(tenantId,newSiteData);
+    }
+
+    @Test
+    public void addSiteWithCorrectValue() {
+        SiteData newSiteData = new SiteData();
+        SiteDTO siteDto = new SiteDTO();
+        siteDto.setId(11L);
+        siteDto.setName(name);
+        siteDto.setUrl(url);
+        siteDto.setIsActive(Boolean.TRUE);
+        newSiteData.setSite(siteDto);
+        Site site=siteDto.convertToEntity();
+
+        Mockito.when(siteRepository.save(site)).thenReturn(site);
+
+        APIResponse apiResponseActual = siteService.addSite(tenantId,newSiteData);
+        assertEquals(200, apiResponseActual.getStatus().intValue());
+    }
+
+    @Test(expected = AccessDeniedException.class)
+    public void getAllSiteWithNullTenantIdShouldthrowBadRequestException() {
+        siteService.getAllSites(null, null, null, DEFAULT_PAGEABLE);
+    }
+
+    @Test(expected = AccessDeniedException.class)
+    public void getAllSiteWithInvalidTenantIdShouldThrowBadRequestException() {
+        siteService.getAllSites(tenantId.concat("INVALID"), null, null,
+                DEFAULT_PAGEABLE);
+    }
+
+    @Test(expected = BadRequestException.class)
+    public void getAllSitesWithInvalidOrderByShouldThrowBadRequestException() throws JSONException {
+        List<Error> errors = new ArrayList<>();
+        errors.add(new Error(ErrorCode.INVALID_ARGUMENT.name(), DUMMY_ERROR_MSG, DUMMY_ERROR_MSG));
+        Error error = new Error();
+        error.setCode(ErrorCode.BAD_REQUEST.name());
+        error.setMessage(DUMMY_ERROR_MSG);
+        error.setDetails(errors);
+        APIResponse expectedResponseBody = new APIResponse();
+        expectedResponseBody.setError(error);
+
+        QSite qSite = QSite.site;
+        BooleanExpression predicates = qSite.tenantId.eq(LONGTENANT_ID);
+        Mockito.when(siteRepository.findAll(Matchers.eq(predicates), Matchers.eq(DEFAULT_PAGEABLE)))
+                .thenThrow(new BadRequestException(DUMMY_ERROR_MSG, errors));
+
+        siteService.getAllSites(tenantId,null, null, DEFAULT_PAGEABLE);
+    }
+
+    @Test
+    public void getAllSitesShouldReturnListOfSites() throws JSONException {
+        List<Site> sites = createDummySitesList();
+        List<SiteDTO> siteDtos = new ArrayList<>();
+        sites.forEach(site -> siteDtos.add(SiteDTO.convertToDto(site)));
+        Page<Site> dummySitePage = new PageImpl<>(sites);
+        SiteData expectedData = new SiteData();
+        expectedData.setSites(siteDtos);
+        expectedData.setPaginationMeta(Utils.createPaginationMeta(dummySitePage));
+        APIResponse expectedResponseBody = new APIResponse();
+        expectedResponseBody.setData(expectedData);
+
+        QSite qSite = QSite.site;
+        BooleanExpression predicates = qSite.tenantId.eq(LONGTENANT_ID);
+        Mockito.when(siteRepository.findAll(Matchers.eq(predicates), Matchers.eq(DEFAULT_PAGEABLE)))
+                .thenReturn(dummySitePage);
+
+        APIResponse responseBody = siteService.getAllSites(tenantId,null, null, DEFAULT_PAGEABLE);
+        JSONAssert.assertEquals(gson.toJson(expectedResponseBody), gson.toJson(responseBody), false);
+    }
+
+    @Test
+    public void getAllSitesWithQueryShouldReturnFilteredListOfSites() throws JSONException {
+        List<Site> sites = createDummySitesList();
+        List<SiteDTO> siteDtos = new ArrayList<>();
+        sites.forEach(site -> siteDtos.add(SiteDTO.convertToDto(site)));
+        Page<Site> dummySitePage = new PageImpl<>(sites);
+        SiteData expectedData = new SiteData();
+        expectedData.setSites(siteDtos);
+        expectedData.setPaginationMeta(Utils.createPaginationMeta(dummySitePage));
+        APIResponse expectedResponseBody = new APIResponse();
+        expectedResponseBody.setData(expectedData);
+        String query = "name";
+        QSite qSite = QSite.site;
+        BooleanExpression predicates = qSite.tenantId.eq(LONGTENANT_ID);
+        Predicate queryPredicate = qSite.name.containsIgnoreCase(query).or(qSite.code.containsIgnoreCase(query))
+                .or(qSite.url.containsIgnoreCase(query));
+        predicates = predicates.and(queryPredicate);
+        Mockito.when(siteRepository.findAll(Matchers.eq(predicates), Matchers.eq(DEFAULT_PAGEABLE)))
+                .thenReturn(dummySitePage);
+
+        APIResponse responseBody = siteService.getAllSites(tenantId,NAME, null, DEFAULT_PAGEABLE);
+        JSONAssert.assertEquals(gson.toJson(expectedResponseBody), gson.toJson(responseBody), false);
+    }
+
+    @Test(expected = AccessDeniedException.class)
+    public void getSiteWithNullTenantIdShouldThrowBadRequestException() {
+        siteService.getSite(null, SITE_ID);
+    }
+
+    @Test(expected = AccessDeniedException.class)
+    public void getSiteWithInvalidTenantIdShouldThrowBadRequestException() {
+        siteService.getSite(tenantId.concat("INVALID"), SITE_ID);
+    }
+
+    @Test(expected = AccessDeniedException.class)
+    public void getSiteWithWrongTenantIdShouldThrowBadRequestException() {
+        SiteData newSite = new SiteData();
+        SiteDTO siteDto = new SiteDTO();
+        siteDto.setName(name);
+        siteDto.setCode(code);
+        siteDto.setUrl(url);
+        siteDto.setTenantId(LONGTENANT_ID);
+        siteDto.setIsActive(Boolean.TRUE);
+        newSite.setSite(siteDto);
+        Timestamp ts = new Timestamp(System.currentTimeMillis());
+        Site site = new Site(LONGTENANT_ID, name, code, url, Boolean.TRUE, ts, ts,"New Site");
+        Mockito.when(siteRepository.findOne(SITE_ID)).thenReturn(site);
+        siteService.getSite(tenantId + 1, SITE_ID);
+    }
+
+    @Test(expected = ResourceNotFoundException.class)
+    public void getSiteWithNonExistingSiteIdShouldThrowResourceNotFoundException() {
+        Site dummySite = new Site();
+        dummySite.setId(SITE_ID);
+        dummySite.setName(name);
+        dummySite.setCode(code);
+        dummySite.setUrl(url);
+        dummySite.setIsActive(Boolean.TRUE);
+        String siteIdParam = String.valueOf(SITE_ID);
+        String[] errorArgs = { "Site", siteIdParam };
+        Mockito.when(siteRepository.findOne(SITE_ID)).thenReturn(null);
+        Mockito.when(messageByLocale.getMessage("error-message.resource-not-found", errorArgs)).thenReturn("invalid");
+        siteService.getSite(tenantId,SITE_ID);
+    }
+
+    @Test
+    public void getSiteWithValidSiteId() throws JSONException {
+        SiteData newSite = new SiteData();
+        SiteDTO siteDto = new SiteDTO();
+        siteDto.setName(name);
+        siteDto.setCode(code);
+        siteDto.setUrl(url);
+        siteDto.setTenantId(LONGTENANT_ID);
+        siteDto.setIsActive(Boolean.TRUE);
+        newSite.setSite(siteDto);
+        Timestamp ts = new Timestamp(System.currentTimeMillis());
+        Site site = new Site(LONGTENANT_ID, name, code, url, Boolean.TRUE, ts, ts,"New Site");
+        Mockito.when(siteRepository.findOne(SITE_ID)).thenReturn(site);
+        APIResponse apiResponseActual = siteService.getSite(tenantId,SITE_ID);
+        assertEquals(200, apiResponseActual.getStatus().intValue());
+    }
+
+    @Test(expected = AccessDeniedException.class)
+    public void updateSiteWithNullTenantIdShouldThrowBadRequestException() {
+        SiteData newSite = new SiteData();
+        SiteDTO siteDto = new SiteDTO();
+        siteDto.setName(name);
+        siteDto.setUrl("http:www.url1.com");
+        siteDto.setTenantId(LONGTENANT_ID);
+        newSite.setSite(siteDto);
+        Site site = new Site(LONGTENANT_ID, name, code, url, Boolean.TRUE, null, null, "New Site");
+        Mockito.when(siteRepository.findOne(SITE_ID)).thenReturn(site);
+        siteService.updateSite(null, SITE_ID, newSite);
+    }
+
+    @Test(expected = AccessDeniedException.class)
+    public void updateSiteWithInvalidTenantIdShouldThrowBadRequestException() {
+        SiteData newSite = new SiteData();
+        SiteDTO siteDto = new SiteDTO();
+        siteDto.setName(name);
+        siteDto.setUrl("http:www.url1.com");
+        siteDto.setTenantId(LONGTENANT_ID);
+        newSite.setSite(siteDto);
+        Site site = new Site(LONGTENANT_ID, name, code, url, Boolean.TRUE, null, null, "New Site");
+        Mockito.when(siteRepository.findOne(SITE_ID)).thenReturn(site);
+        siteService.updateSite(tenantId.concat("INVALID"), SITE_ID, newSite);
+    }
+
+    @Test(expected = AccessDeniedException.class)
+    public void updateSiteWithWrongTenantIdShouldThrowBadRequestException() {
+        SiteData newSite = new SiteData();
+        SiteDTO siteDto = new SiteDTO();
+        siteDto.setName(name);
+        siteDto.setUrl(url);
+        siteDto.setTenantId(LONGTENANT_ID);
+        siteDto.setIsActive(Boolean.TRUE);
+        newSite.setSite(siteDto);
+        Timestamp ts = new Timestamp(System.currentTimeMillis());
+        Site site = new Site(LONGTENANT_ID, name, code, url, Boolean.TRUE, ts, ts,"New Site");
+        Mockito.when(siteRepository.findOne(SITE_ID)).thenReturn(site);
+        siteService.updateSite(tenantId + 1, SITE_ID, newSite);
+    }
+
+
+    @Test(expected = BadRequestException.class)
+    public void updateSiteWithInvalidNameShouldThrowBadRequestException() {
+        SiteData newSite = new SiteData();
+        SiteDTO siteDto = new SiteDTO();
+        siteDto.setName(name.concat("@#"));
+        siteDto.setUrl(url);
+        siteDto.setTenantId(LONGTENANT_ID);
+        newSite.setSite(siteDto);
+        Site site = new Site(LONGTENANT_ID, name, code, url, Boolean.TRUE, null, null, "New Site");
+        Mockito.when(siteRepository.findOne(SITE_ID)).thenReturn(site);
+        siteService.updateSite(tenantId, SITE_ID, newSite);
+    }
+
+    @Test(expected = BadRequestException.class)
+    public void updateSiteWithInvalidURLShouldThrowBadRequestException() {
+        SiteData newSite = new SiteData();
+        SiteDTO siteDto = new SiteDTO();
+        siteDto.setName(name);
+        siteDto.setUrl("http:www.url1.com");
+        siteDto.setTenantId(LONGTENANT_ID);
+        newSite.setSite(siteDto);
+        Site site = new Site(LONGTENANT_ID, name, code, url, Boolean.TRUE, null, null, "New Site");
+        Mockito.when(siteRepository.findOne(SITE_ID)).thenReturn(site);
+        siteService.updateSite(tenantId, SITE_ID, newSite);
+    }
+
+    @Test(expected = BadRequestException.class)
+    public void updateSiteWithInvalidIdShouldThrowBadRequestException() {
+        SiteData newSite = new SiteData();
+        SiteDTO siteDto = new SiteDTO();
+        siteDto.setName(name);
+        siteDto.setUrl("http:www.url.com");
+        siteDto.setTenantId(LONGTENANT_ID);
+        newSite.setSite(siteDto);
+        Site site = new Site(LONGTENANT_ID, name, code, url, Boolean.TRUE, null, null, "New Site");
+        Mockito.when(siteRepository.findOne(SITE_ID)).thenReturn(site);
+        site.setId(SITE_ID);
+        site.setIsActive(Boolean.FALSE);
+        siteService.updateSite(tenantId,SITE_ID, newSite);
+    }
+
+    @Test
+    public void updateSiteWithCorrectValues() {
+        SiteData newSite = new SiteData();
+        SiteDTO siteDto = new SiteDTO();
+        siteDto.setName(name);
+        siteDto.setUrl(url);
+        siteDto.setTenantId(LONGTENANT_ID);
+        siteDto.setIsActive(Boolean.TRUE);
+        newSite.setSite(siteDto);
+        Timestamp ts = new Timestamp(System.currentTimeMillis());
+        Site site = new Site(LONGTENANT_ID, name, code, url, Boolean.TRUE, ts, ts, "New Site");
+        Mockito.when(siteRepository.findOne(SITE_ID)).thenReturn(site);
+        Mockito.when(siteRepository.save(site)).thenReturn(site);
+        APIResponse apiResponseActual = siteService.updateSite(tenantId, SITE_ID, newSite);
+        assertEquals(200, apiResponseActual.getStatus().intValue());
+    }
+
+    @Test(expected = AccessDeniedException.class)
+    public void deleteSiteWithNullTenantIdShouldThrowBadRequestException() {
+        Site site = new Site(LONGTENANT_ID, name, code, url, Boolean.TRUE, null, null, "New Site");
+        Mockito.when(siteRepository.findOne(SITE_ID)).thenReturn(site);
+        siteService.deleteSite(null, SITE_ID);
+    }
+
+    @Test(expected = AccessDeniedException.class)
+    public void deleteSiteWithInvalidTenantIdShouldThrowBadRequestException() {
+        Site site = new Site(LONGTENANT_ID, name, code, url, Boolean.TRUE, null, null, "New Site");
+        Mockito.when(siteRepository.findOne(SITE_ID)).thenReturn(site);
+        siteService.deleteSite(tenantId.concat("INVALID"), SITE_ID);
+    }
+
+    @Test(expected = AccessDeniedException.class)
+    public void deleteSiteWithWrongTenantIdShouldThrowBadRequestException() {
+        SiteData newSite = new SiteData();
+        SiteDTO siteDto = new SiteDTO();
+        siteDto.setName(name);
+        siteDto.setUrl(url);
+        siteDto.setTenantId(LONGTENANT_ID);
+        siteDto.setIsActive(Boolean.TRUE);
+        newSite.setSite(siteDto);
+        Timestamp ts = new Timestamp(System.currentTimeMillis());
+        Site site = new Site(LONGTENANT_ID, name, code, url, Boolean.TRUE, ts, ts,"New Site");
+        Mockito.when(siteRepository.findOne(SITE_ID)).thenReturn(site);
+        siteService.deleteSite(tenantId + 1, SITE_ID);
+    }
+
+    @Test(expected = BadRequestException.class)
+    public void deleteSiteWithInvalidIdShouldThrowBadRequestException() {
+        Site site = new Site(LONGTENANT_ID, name, code, url, Boolean.TRUE, null, null, "New Site");
+        Mockito.when(siteRepository.findOne(SITE_ID)).thenReturn(site);
+        site.setId(SITE_ID);
+        site.setIsActive(Boolean.FALSE);
+        siteService.deleteSite(tenantId,SITE_ID);
+    }
+
+    @Test
+    public void deleteSiteWithCorrectValues() {
+        SiteDTO siteDto = new SiteDTO();
+        siteDto.setIsActive(Boolean.FALSE);
+        Timestamp ts = new Timestamp(System.currentTimeMillis());
+        Site site = new Site(LONGTENANT_ID, name, code, url, Boolean.TRUE, ts, ts, "New Site");
+        Mockito.when(siteRepository.findOne(SITE_ID)).thenReturn(site);
+        Mockito.when(siteRepository.save(site)).thenReturn(site);
+        APIResponse apiResponseActual = siteService.deleteSite(tenantId,SITE_ID);
+        assertEquals(200, apiResponseActual.getStatus().intValue());
+    }
+
+    private List<Site> createDummySitesList() {
+        Site newSite = new Site();
+        Timestamp ts = new Timestamp(System.currentTimeMillis());
+        newSite.setId(SITE_ID);
+        newSite.setName(name);
+        newSite.setUrl(url);
+        newSite.setIsActive(Boolean.TRUE);
+        newSite.setCreatedTime(ts);
+        newSite.setUpdatedTime(ts);
+        List<Site> sites = new ArrayList<>();
+        sites.add(newSite);
+
+        return sites;
+    }
+
+    @Test(expected = ResourceNotFoundException.class)
+    public void getSiteSettingsWithNonExistingIdShouldThrowResourceNotFoundException() throws Exception {
+        List<SiteSettings> siteSettings = new ArrayList<SiteSettings>();
+        Mockito.when(siteSettingRepository.findAllBySiteId(11111L)).thenReturn(siteSettings);
+
+        siteService.getSiteSettings(11111L, null, null);
+    }
+
+    @Test(expected = BadRequestException.class)
+    public void getSiteSettingsWithInvalidSiteIdShouldThrowBadRequestException() throws Exception {
+        siteService.getSiteSettings(-1L, null, null);
+    }
+
+    @Test
+    public void getSiteSettingsWithCorrectIdShouldReturnSuccess() throws IOException, JSONException {
+        List<SiteSettings> siteSettings = createDummySettingList();
+        List<SiteSettings> dummySiteSettings = new ArrayList<SiteSettings>();
+        dummySiteSettings.add(siteSetting);
+        Mockito.when(siteSettingRepository.findAllBySiteId(0L)).thenReturn(dummySiteSettings);
+        Mockito.when(configGroupRepo.findOne(0L)).thenReturn(configGroup);
+        List<SiteSettingDTO> siteSettingDtos = new ArrayList<>();
+        siteSettings.forEach(siteSetting -> {
+            try {
+                siteSettingDtos.add(SiteSettingDTO.convertToDTO(siteSetting));
+            } catch (IOException e) {
+
+            }
+        });
+        Page<SiteSettings> dummySiteSettingPage = new PageImpl<>(siteSettings);
+        APIResponse expectedResponseBody = new APIResponse();
+        expectedResponseBody.setData(siteSettingDtos);
+        QSiteSettings qSiteSetting = QSiteSettings.siteSettings;
+        BooleanExpression predicates = qSiteSetting.siteId.eq(0L).and(null);
+        Mockito.when(siteSettingRepository.findAll(predicates)).thenReturn(dummySiteSettingPage);
+
+        APIResponse responseBody = siteService.getSiteSettings(0L, null, null);
+        assertEquals(200, responseBody.getStatus().intValue());
+    }
+
+    @Test(expected = BadRequestException.class)
+    public void updateSiteSettingsWithNullSettingsShouldThrowBadRequestException() throws Exception {
+        SiteData siteSetting = new SiteData();
+        SiteSettingData siteSettingData = new SiteSettingData();
+        SiteSettingDTO siteDto = new SiteSettingDTO();
+        List<SiteSettingDTO> siteSettings=new ArrayList<SiteSettingDTO>();
+        siteDto.setId(0L);
+        siteSettings.add(siteDto);
+        siteSettingData.setConfigGroups(siteSettings);
+        siteSetting.setSiteSettings(siteSettingData);
+        siteService.updateSiteSettings(1111L, siteSetting);
+    }
+
+    @Test
+    public void updateSiteSettingsWithCorrectIdShouldReturnSuccess() throws Exception {
+        SiteData siteSetting = new SiteData();
+        SiteSettingData siteSettingData = new SiteSettingData();
+        ObjectNode option_value = mapper.createObjectNode();
+        option_value.putPOJO("settings", mapper.createObjectNode().put("settings", "list"));
+
+        Timestamp ts = new Timestamp(System.currentTimeMillis());
+        Site site = new Site(LONGTENANT_ID, name, code, url, Boolean.TRUE, ts, ts, "New Site");
+        Mockito.when(siteRepository.findOne(0L)).thenReturn(site);
+        SiteSettingDTO siteDto = new SiteSettingDTO();
+        List<SiteSettingDTO> siteSettings=new ArrayList<SiteSettingDTO>();
+        siteDto.setSettings(option_value);
+        siteSettingData.setConfigGroups(siteSettings);
+        siteSetting.setSiteSettings(siteSettingData);
+
+        APIResponse apiResponseActual= siteService.updateSiteSettings(1111L, siteSetting);
+        assertEquals(200, apiResponseActual.getStatus().intValue());
+    }
+
+    @Test(expected = ResourceNotFoundException.class)
+    public void saveSiteSettingsWithNonExistingIdShouldThrowBadRequestException() throws Exception {
+        SiteData siteSetting = new SiteData();
+        SiteSettingData siteSettingData = new SiteSettingData();
+        ObjectNode option_value = mapper.createObjectNode();
+        List<SiteSettingDTO> siteSettings=new ArrayList<SiteSettingDTO>();
+        option_value.putPOJO("settings", mapper.createObjectNode().put("settings", "list"));
+        SiteSettingDTO siteDto = new SiteSettingDTO();
+        siteDto.setSettings(option_value);
+        siteDto.setId(0L);
+        siteSettingData.setConfigGroups(siteSettings);
+        siteSetting.setSiteSettings(siteSettingData);
+        Mockito.when(moduleconfigrepo.findOneByconfigGroupId(0L)).thenReturn(moduleConfigGroup);
+
+        siteService.saveSiteSetting((long) 0, siteSetting);
+    }
+
+   @Test(expected = BadRequestException.class)
+   public void saveSiteSettingsWithNullSettingsShouldThrowBadRequestException() throws Exception {
+       SiteData siteSetting = new SiteData();
+       SiteSettingData siteSettingData = new SiteSettingData();
+       SiteSettingDTO siteDto = new SiteSettingDTO();
+       List<SiteSettingDTO> siteSettings=new ArrayList<SiteSettingDTO>();
+       siteDto.setId(0L);
+       siteSettings.add(siteDto);
+       siteSettingData.setConfigGroups(siteSettings);
+       siteSetting.setSiteSettings(siteSettingData);
+       Timestamp ts = new Timestamp(System.currentTimeMillis());
+       Site site = new Site(LONGTENANT_ID, name, code, url, Boolean.TRUE, ts, ts, "New Site");
+       Mockito.when(siteRepository.findOne(0L)).thenReturn(site);
+
+       siteService.saveSiteSetting((long) 0, siteSetting);
+   }
+
+   @Test
+   public void saveSiteSettingsWithCorrectIdShouldReturnSuccess() throws Exception {
+       SiteData siteSetting = new SiteData();
+       SiteSettingData siteSettingData = new SiteSettingData();
+       ObjectNode option_value = mapper.createObjectNode();
+       option_value.putPOJO("settings", mapper.createObjectNode().put("settings", "list"));
+
+       Timestamp ts = new Timestamp(System.currentTimeMillis());
+       Site site = new Site(LONGTENANT_ID, name, code, url, Boolean.TRUE, ts, ts, "New Site");
+       Mockito.when(siteRepository.findOne(0L)).thenReturn(site);
+       SiteSettingDTO siteDto = new SiteSettingDTO();
+       List<SiteSettingDTO> siteSettings=new ArrayList<SiteSettingDTO>();
+       siteDto.setSettings(option_value);
+       siteSettingData.setConfigGroups(siteSettings);
+       siteSetting.setSiteSettings(siteSettingData);
+
+       APIResponse apiResponseActual = siteService.saveSiteSetting(0L, siteSetting);
+       assertEquals(200, apiResponseActual.getStatus().intValue());
+   }
+
+   private List<SiteSettings> createDummySettingList() {
+       SiteSettings newSiteSetting = new SiteSettings();
+       newSiteSetting.setConfigGroupId(0L);
+       newSiteSetting.setSiteId(0L);
+       ObjectNode option_values = mapper.createObjectNode();
+       option_values.putPOJO("SEARCH", mapper.createObjectNode().put("theme", "default"));
+       newSiteSetting.setSettings(option_values.toString());
+       List<SiteSettings> siteSettingList = new ArrayList<>();
+       siteSettingList.add(newSiteSetting);
+       return siteSettingList;
+   }
+
+}
